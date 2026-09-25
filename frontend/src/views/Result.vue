@@ -659,6 +659,30 @@ const handleImageError = (event: Event) => {
     'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23f0f0f0"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="18" fill="%23999"%3E图片加载失败%3C/text%3E%3C/svg%3E';
 };
 
+// 后端 API 基地址 (与 services/api.ts 保持一致), 导出图片代理用
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+// 把导出容器里的高德 CDN 图片替换为后端代理源, 并等待加载完成。
+// 修复导出图片/PDF 照片空白: 高德 CDN 不返回 CORS 头, html2canvas 以
+// crossOrigin 方式重新拉图会被浏览器拒绝; 换成带 CORS 的后端代理即可绘制。
+const prepareExportImages = async (container: HTMLElement) => {
+  const imgs = Array.from(container.querySelectorAll("img"));
+  await Promise.all(
+    imgs.map((img) => {
+      const src = img.getAttribute("src") || "";
+      // 跳过: 空src / data URI(地图截图、占位图) / 已代理的图
+      if (!src || src.startsWith("data:") || src.includes("/api/poi/image-proxy")) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve(); // 代理失败不阻塞导出(该图仍为空白)
+        img.src = `${API_BASE}/api/poi/image-proxy?url=${encodeURIComponent(src)}`;
+      });
+    })
+  );
+};
+
 // 导出为图片
 const exportAsImage = async () => {
   try {
@@ -678,15 +702,23 @@ const exportAsImage = async () => {
     // 复制所有内容
     exportContainer.innerHTML = element.innerHTML;
 
-    // 处理地图截图
+    // 处理地图截图 (WebGL canvas 需 preserveDrawingBuffer 才能 toDataURL,
+    // 失败时用占位提示替代, 不中断导出)
     const mapContainer = document.getElementById("amap-container");
     if (mapContainer && map) {
-      const mapCanvas = mapContainer.querySelector("canvas");
-      if (mapCanvas) {
-        const mapSnapshot = mapCanvas.toDataURL("image/png");
-        const exportMapContainer = exportContainer.querySelector("#amap-container");
-        if (exportMapContainer) {
-          exportMapContainer.innerHTML = `<img src="${mapSnapshot}" style="width:100%;height:100%;object-fit:cover;" />`;
+      const exportMapContainer = exportContainer.querySelector("#amap-container");
+      if (exportMapContainer) {
+        try {
+          const mapCanvas = mapContainer.querySelector("canvas");
+          const mapSnapshot = mapCanvas
+            ? mapCanvas.toDataURL("image/png")
+            : "";
+          exportMapContainer.innerHTML = mapSnapshot
+            ? `<img src="${mapSnapshot}" style="width:100%;height:100%;object-fit:cover;" />`
+            : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8eaef;color:#888;">地图截图不可用</div>`;
+        } catch (err) {
+          console.error("地图截图失败:", err);
+          exportMapContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8eaef;color:#888;">地图截图不可用</div>`;
         }
       }
     }
@@ -772,6 +804,9 @@ const exportAsImage = async () => {
     exportContainer.style.left = "-9999px";
     document.body.appendChild(exportContainer);
 
+    // 照片换后端代理源并等待加载, 修复导出空白
+    await prepareExportImages(exportContainer);
+
     const canvas = await html2canvas(exportContainer, {
       backgroundColor: "#f5f7fa",
       scale: 2,
@@ -815,15 +850,23 @@ const exportAsPDF = async () => {
     // 复制所有内容
     exportContainer.innerHTML = element.innerHTML;
 
-    // 处理地图截图
+    // 处理地图截图 (WebGL canvas 需 preserveDrawingBuffer 才能 toDataURL,
+    // 失败时用占位提示替代, 不中断导出)
     const mapContainer = document.getElementById("amap-container");
     if (mapContainer && map) {
-      const mapCanvas = mapContainer.querySelector("canvas");
-      if (mapCanvas) {
-        const mapSnapshot = mapCanvas.toDataURL("image/png");
-        const exportMapContainer = exportContainer.querySelector("#amap-container");
-        if (exportMapContainer) {
-          exportMapContainer.innerHTML = `<img src="${mapSnapshot}" style="width:100%;height:100%;object-fit:cover;" />`;
+      const exportMapContainer = exportContainer.querySelector("#amap-container");
+      if (exportMapContainer) {
+        try {
+          const mapCanvas = mapContainer.querySelector("canvas");
+          const mapSnapshot = mapCanvas
+            ? mapCanvas.toDataURL("image/png")
+            : "";
+          exportMapContainer.innerHTML = mapSnapshot
+            ? `<img src="${mapSnapshot}" style="width:100%;height:100%;object-fit:cover;" />`
+            : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8eaef;color:#888;">地图截图不可用</div>`;
+        } catch (err) {
+          console.error("地图截图失败:", err);
+          exportMapContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8eaef;color:#888;">地图截图不可用</div>`;
         }
       }
     }
@@ -909,6 +952,9 @@ const exportAsPDF = async () => {
     exportContainer.style.left = "-9999px";
     document.body.appendChild(exportContainer);
 
+    // 照片换后端代理源并等待加载, 修复导出空白
+    await prepareExportImages(exportContainer);
+
     const canvas = await html2canvas(exportContainer, {
       backgroundColor: "#f5f7fa",
       scale: 2,
@@ -970,6 +1016,9 @@ const initMap = async () => {
       zoom: 12,
       center: mapCenter.center,
       viewMode: "3D",
+      // WebGL 默认在合成后清空绘图缓冲区, 导出时 canvas.toDataURL() 会得到空白图;
+      // 开启 preserveDrawingBuffer 保留缓冲区, 地图截图才能进导出的图片/PDF
+      WebGLParams: { preserveDrawingBuffer: true },
     });
     if (!mapCenter.found) {
       message.warning("行程景点缺少有效坐标, 地图无法定位到目的地城市");

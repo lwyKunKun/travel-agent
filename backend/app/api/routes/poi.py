@@ -4,8 +4,11 @@ import logging
 import threading
 import time
 from typing import Optional
+from urllib.parse import urlparse
 
-from fastapi import APIRouter
+import httpx
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ...services.amap_service import get_amap_service
@@ -120,3 +123,44 @@ def get_attraction_photo(name: str):
             "photo_url": photo_url,
         },
     }
+
+
+# 图片代理只允许高德系域名, 防止被当作任意 URL 的 SSRF 跳板
+_ALLOWED_IMAGE_HOSTS = (".amap.com", ".autonavi.com")
+
+
+@router.get(
+    "/image-proxy",
+    summary="景点图片代理",
+    description="代理高德CDN图片(带CORS头), 修复前端导出图片/PDF时照片空白的问题",
+)
+async def proxy_attraction_image(url: str):
+    """代理拉取高德 CDN 景点图片
+
+    前端 html2canvas 导出时需要以 CORS 方式重新拉图, 而高德 CDN 不返回
+    Access-Control-Allow-Origin 头, 跨域拉取失败导致导出的照片全空白。
+    经本代理中转后, 图片由后端(FastAPI CORS 中间件)返回, 前端可正常绘制。
+
+    安全: 仅允许 amap.com / autonavi.com 域名白名单。
+    """
+    host = (urlparse(url).hostname or "").lower()
+    if not host.endswith(_ALLOWED_IMAGE_HOSTS):
+        raise HTTPException(status_code=403, detail="仅允许代理高德系图片域名")
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            rsp = await client.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+                    "Referer": "https://www.amap.com/",
+                },
+            )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"拉取图片失败: {e}")
+    if rsp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"图片源返回 {rsp.status_code}")
+    return Response(
+        content=rsp.content,
+        media_type=rsp.headers.get("content-type", "image/jpeg"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
