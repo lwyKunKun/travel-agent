@@ -71,6 +71,10 @@ class Attraction(BaseModel):
     poi_id: Optional[str] = Field(default="", description="POI ID")
     image_url: Optional[str] = Field(default=None, description="图片URL")
     ticket_price: int = Field(default=0, description="门票价格(元)")
+    sources: List[str] = Field(
+        default_factory=list,
+        description="信息来源标签: 高德地图(真实POI)/知识库(有门票交通详情)/AI推荐·需核实(两者均未收录)",
+    )
 
 
 class Meal(BaseModel):

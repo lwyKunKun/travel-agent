@@ -353,19 +353,32 @@ class MultiAgentTripPlanner:
         # 兜底: 若LLM未返回预算, 前端预算页会异常, 这里自动补齐
         trip_plan = self._ensure_budget(trip_plan, request)
 
-        # 知识库增强: 给每个景点追加知识库详情(门票/开放时间/交通/避坑),
-        # 让知识库内容真正落到前端每个景点上。失败/未启用时静默跳过。
+        # 来源标注 + 知识库增强:
+        # 1. 景点名能在高德候选POI里匹配到 → 标"高德地图"(坐标/地址真实可靠)
+        # 2. 知识库精确匹配到详情 → 标"知识库"并追加门票/交通/避坑信息
+        # 3. 两者都没有 → 标"AI推荐·需核实"(LLM可能编造, 提醒用户自行确认)
+        # 失败/未启用时静默跳过, 不影响主流程。
         try:
             from ..services.rag_service import get_rag_service
 
             rag = get_rag_service()
+            candidate_names = [
+                p.name for p in (result.get("attraction_pois") or []) if p.name
+            ]
             for day in trip_plan.days:
                 for attr in day.attractions:
+                    sources: List[str] = []
+                    if self._match_candidate(attr.name, candidate_names):
+                        sources.append("高德地图")
                     detail = rag.get_attraction_rag_text(attr.name, trip_plan.city)
                     if detail:
+                        sources.append("知识库")
                         attr.description = f"{attr.description}\n\n——知识库参考——\n{detail}"
+                    if not sources:
+                        sources.append("AI推荐·需核实")
+                    attr.sources = sources
         except Exception as e:
-            logger.warning(f"⚠️  知识库详情增强失败(不影响主流程): {e}")
+            logger.warning(f"⚠️  来源标注/知识库增强失败(不影响主流程): {e}")
 
         logger.info(f"\n{'='*60}")
         logger.info(f"✅ 旅行计划生成完成! 天数: {len(trip_plan.days)}")
@@ -381,6 +394,18 @@ class MultiAgentTripPlanner:
         }
 
     # ============ 内部工具方法 ============
+
+    @staticmethod
+    def _match_candidate(name: str, candidates: List[str]) -> bool:
+        """判断景点名能否在高德候选POI列表中匹配到 (双向子串模糊匹配)
+
+        LLM 输出的名称与高德 POI 名常有出入 (如"故宫"vs"故宫博物院"、
+        "北京环球影城"vs"环球影城度假区"), 任一方向包含即视为同一景点。
+        """
+        name = (name or "").strip()
+        if len(name) < 2:
+            return False
+        return any(name in c or c in name for c in candidates if c)
 
     @staticmethod
     def _parse_json_response(content: str) -> TripPlan:

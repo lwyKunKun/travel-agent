@@ -199,7 +199,21 @@
               <a-list :data-source="day.attractions" :grid="{ gutter: 16, column: 2 }">
                 <template #renderItem="{ item, index }">
                   <a-list-item>
-                    <a-card :title="item.name" size="small" class="attraction-card">
+                    <a-card size="small" class="attraction-card">
+                      <!-- 卡片标题: 景点名 + 信息来源标签 -->
+                      <template #title>
+                        <span class="attraction-title">
+                          {{ item.name }}
+                          <a-tag
+                            v-for="src in item.sources || []"
+                            :key="src"
+                            :color="sourceTagColor(src)"
+                            class="source-tag"
+                          >
+                            {{ src }}
+                          </a-tag>
+                        </span>
+                      </template>
                       <!-- 编辑模式下的操作按钮 -->
                       <template #extra v-if="editMode">
                         <a-space>
@@ -594,6 +608,13 @@ const loadAttractionPhotos = async () => {
 
   await Promise.all(promises);
 };
+
+// 信息来源标签颜色: 高德=蓝(真实POI), 知识库=绿(有人工整理详情), AI推荐=橙(需核实)
+const sourceTagColor = (src: string): string => {
+  if (src.includes('高德')) return 'blue'
+  if (src.includes('知识库')) return 'green'
+  return 'orange'
+}
 
 // 获取景点图片
 const getAttractionImage = (name: string, index: number): string => {
@@ -1169,6 +1190,22 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
   color: #666;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* 卡片标题: 景点名 + 来源标签同行展示, 标签缩小避免喧宾夺主 */
+.attraction-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.source-tag {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  margin-inline-end: 0;
+  font-weight: normal;
 }
 
 .attraction-image {

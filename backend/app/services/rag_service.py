@@ -303,33 +303,110 @@ class RagService:
             logger.warning(f"⚠️  知识库景点提取失败: {e}")
             return []
 
-    def get_attraction_rag_text(self, name: str, city: str, max_chars: int = 320) -> str:
+    def get_attraction_rag_text(
+        self, name: str, city: str, max_chars: int = 320, min_relevance: float = 0.4
+    ) -> str:
         """检索知识库中某景点的详细信息 (门票/开放时间/交通/打卡/避坑)
 
         供行程生成后回填到景点描述, 让知识库内容真正落到前端每个景点上。
-        只取最相关的一段, 避免把其他景点的内容拼进来。
+
+        精确性保障 (避免给知识库外的景点乱挂"知识库参考"):
+        1. 带相关性分数检索, 低于 min_relevance 的片段直接丢弃
+        2. 片段必须包含景点名 (支持别名变体: 去城市前缀/括号内外拆分),
+           优先匹配 "### 景点名" 标题所在片段
+        3. 只提取该景点标题下到下一个标题之间的正文, 不混入其他景点内容
+        知识库中没有的景点返回空字符串, 前端就不会显示知识库参考。
         """
         if not self.enabled:
             return ""
         try:
-            docs = self._knowledge_store.similarity_search(
+            docs_with_scores = self._knowledge_store.similarity_search_with_relevance_scores(
                 f"{city} {name} 门票 开放时间 交通 避坑 打卡",
-                k=1,
+                k=3,
                 filter={"city": city},
             )
-            if not docs:
-                return ""
-            lines = []
-            for line in docs[0].page_content.splitlines():
-                line = line.strip()
-                if not line or line.startswith("##") or line.startswith("###"):
-                    continue  # 跳过标题行
-                lines.append(line)
-            text = "\n".join(lines).strip()
-            return text[:max_chars]
+            aliases = self._name_aliases(name, city)
+            best_text = ""
+            best_score = -1.0
+            for doc, score in docs_with_scores:
+                if score < min_relevance:
+                    continue  # 相关性不足, 宁可不显示也不挂错误内容
+                content = doc.page_content
+                # 优先: 片段里有该景点的 ### 标题 → 精确提取标题下的正文
+                heading_match = next(
+                    (
+                        m
+                        for m in re.finditer(r"^###\s+(.+)$", content, re.M)
+                        if self._heading_matches(m.group(1), aliases)
+                    ),
+                    None,
+                )
+                if heading_match:
+                    body = self._extract_section(content, heading_match.start())
+                    text = self._clean_body(body)
+                    if text:
+                        return text[:max_chars]  # 标题级匹配已是最精确结果, 直接返回
+                # 次选: 片段正文提到景点名但无专属标题 (如"避坑指南汇总"里顺带提及)
+                # → 只提取包含景点名的那几行, 不返回整段无关内容
+                if not best_text and any(a in content for a in aliases):
+                    mentioned = [
+                        ln.strip()
+                        for ln in content.splitlines()
+                        if ln.strip()
+                        and not ln.strip().startswith("#")
+                        and any(a in ln for a in aliases)
+                    ]
+                    text = "\n".join(mentioned).strip()
+                    if text and score > best_score:
+                        best_text, best_score = text[:max_chars], score
+            return best_text
         except Exception as e:
             logger.warning(f"⚠️  知识库景点详情检索失败: {e}")
             return ""
+
+    @staticmethod
+    def _name_aliases(name: str, city: str) -> List[str]:
+        """生成景点名的匹配别名: 全名、去城市前缀、括号内外拆分
+
+        例: "北京故宫博物院（紫禁城）" → [北京故宫博物院（紫禁城）, 故宫博物院（紫禁城）,
+            故宫博物院, 紫禁城] (过滤掉过短的碎片, 按长度降序便于优先匹配长名)
+        """
+        raw = {name.strip(), name.replace(city, "").strip()}
+        aliases = set()
+        for a in raw:
+            if not a:
+                continue
+            aliases.add(a)
+            # 括号内外拆分: "故宫博物院（紫禁城）" → "故宫博物院" + "紫禁城"
+            for part in re.split(r"[（()）]", a):
+                part = part.strip()
+                if len(part) >= 2:
+                    aliases.add(part)
+        return sorted((a for a in aliases if len(a) >= 2), key=len, reverse=True)
+
+    @staticmethod
+    def _heading_matches(heading: str, aliases: List[str]) -> bool:
+        """判断 "### 标题" 是否就是该景点 (标题与别名互相包含即算匹配)"""
+        heading = heading.strip()
+        return any(a in heading or heading in a for a in aliases)
+
+    @staticmethod
+    def _extract_section(content: str, heading_pos: int) -> str:
+        """截取从标题位置到下一个 ##/### 标题 (或片段结尾) 之间的正文"""
+        next_heading = re.search(r"^#{2,3}\s+", content[heading_pos + 4:], re.M)
+        end = heading_pos + 4 + next_heading.start() if next_heading else len(content)
+        return content[heading_pos:end]
+
+    @staticmethod
+    def _clean_body(text: str) -> str:
+        """去掉标题行和空行, 只保留条目正文"""
+        lines = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue  # 跳过标题行
+            lines.append(line)
+        return "\n".join(lines).strip()
 
 
 # 全局单例

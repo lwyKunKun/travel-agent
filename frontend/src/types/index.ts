@@ -15,6 +15,8 @@ export interface Attraction {
   rating?: number
   image_url?: string
   ticket_price?: number
+  // 信息来源标签: 高德地图 / 知识库 / AI推荐·需核实 (旧历史记录无此字段)
+  sources?: string[]
 }
 
 export interface Meal {
