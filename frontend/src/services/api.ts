@@ -5,7 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 300000, // 2分钟超时
+  timeout: 600000, // 10分钟: 思考模型生成多天行程大JSON可能需2-4分钟, 后端含重试最坏约560秒
   headers: {
     'Content-Type': 'application/json'
   }

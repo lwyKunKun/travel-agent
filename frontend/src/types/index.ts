@@ -74,6 +74,9 @@ export interface TripPlan {
   weather_info: WeatherInfo[]
   overall_suggestions: string
   budget?: Budget
+  // 降级标记: LLM 生成失败时为 true, 前端展示警告横幅
+  is_fallback?: boolean
+  fallback_reason?: string
 }
 
 export interface TripFormData {

@@ -27,6 +27,20 @@
       </a-space>
     </div>
 
+    <!-- 降级数据警告横幅: LLM生成失败时后端会打上 is_fallback 标记 -->
+    <a-alert
+      v-if="tripPlan && tripPlan.is_fallback"
+      class="fallback-alert"
+      type="warning"
+      show-icon
+      banner
+      message="⚠️ 当前行程为降级兜底数据（LLM 未参与生成）"
+      :description="
+        tripPlan.fallback_reason ||
+        '行程由高德真实POI数据自动编排，缺少AI个性化建议。请检查后端 LLM_API_KEY 配置后重新生成。'
+      "
+    />
+
     <div v-if="tripPlan" class="content-wrapper">
       <!-- 侧边导航 -->
       <div class="side-nav">
@@ -46,10 +60,7 @@
                 第{{ day.day_index + 1 }}天
               </a-menu-item>
             </a-sub-menu>
-            <a-menu-item
-              key="weather"
-              v-if="tripPlan.weather_info && tripPlan.weather_info.length > 0"
-            >
+            <a-menu-item key="weather">
               <span>🌤️ 天气信息</span>
             </a-menu-item>
           </a-menu>
@@ -324,6 +335,13 @@
           class="weather-section"
           :bordered="false"
         >
+          <!-- 双数据源: 高德4天 + Open-Meteo补齐至16天, 行程更远日期仍无预报, 明确告知用户 -->
+          <a-alert
+            class="weather-tip"
+            type="info"
+            show-icon
+            message="天气数据来自高德（今日起 4 天）与 Open-Meteo（今日起 16 天）预报合并，仅展示行程日期范围内有预报的日期；更远的日期暂无数据，出行前请再次查询。"
+          />
           <a-list :data-source="tripPlan.weather_info" :grid="{ gutter: 16, column: 3 }">
             <template #renderItem="{ item }">
               <a-list-item>
@@ -354,6 +372,17 @@
               </a-list-item>
             </template>
           </a-list>
+        </a-card>
+
+        <!-- 行程日期全部超出16天预报窗口时的空态提示 -->
+        <a-card
+          v-else
+          id="weather"
+          title="🌤️ 天气信息"
+          class="weather-section"
+          :bordered="false"
+        >
+          <a-empty description="行程日期超出天气预报范围（高德提供今日起 4 天、Open-Meteo 提供今日起 16 天），出行前请自行查询目的地天气" />
         </a-card>
       </div>
     </div>
@@ -535,6 +564,9 @@ const getMealLabel = (type: string): string => {
   return labels[type] || type;
 };
 
+// 后端API地址 (与 services/api.ts 保持一致, 修复旧版硬编码 localhost:8000 导致部署环境拉不到图片)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 // 加载所有景点图片
 const loadAttractionPhotos = async () => {
   if (!tripPlan.value) return;
@@ -544,7 +576,7 @@ const loadAttractionPhotos = async () => {
   tripPlan.value.days.forEach((day) => {
     day.attractions.forEach((attraction) => {
       const promise = fetch(
-        `http://localhost:8000/api/poi/photo?name=${encodeURIComponent(attraction.name)}`
+        `${API_BASE_URL}/api/poi/photo?name=${encodeURIComponent(attraction.name)}`
       )
         .then((res) => res.json())
         .then((data) => {
@@ -908,23 +940,46 @@ const initMap = async () => {
     });
 
     // 创建地图实例
+    // 中心点: 取行程中第一个有效景点坐标(修复旧版bug: 硬编码北京中心,
+    // 导致成都等无坐标行程的地图显示北京); 无任何有效坐标时才回退北京并提示
+    const mapCenter = getMapCenter();
     map = new AMap.Map("amap-container", {
       zoom: 12,
-      center: [116.397128, 39.916527], // 默认中心点(北京)
+      center: mapCenter.center,
       viewMode: "3D",
     });
+    if (!mapCenter.found) {
+      message.warning("行程景点缺少有效坐标, 地图无法定位到目的地城市");
+    }
 
     // 添加景点标记
     addAttractionMarkers(AMap);
 
     message.success("地图加载成功");
   } catch (error) {
-    console.log(import.meta.env.VITE_API_BASE_URL, "777");
-
-    console.log(import.meta.env.VITE_AMAP_WEB_JS_KEY, "---111");
     console.error("地图加载失败:", error);
     message.error("地图加载失败");
   }
+};
+
+// 计算地图初始中心: 第一个有效景点坐标 > 酒店坐标 > 默认北京(仅兜底)
+const getMapCenter = (): { center: [number, number]; found: boolean } => {
+  const DEFAULT_CENTER: [number, number] = [116.397128, 39.916527];
+  if (!tripPlan.value) return { center: DEFAULT_CENTER, found: false };
+
+  for (const day of tripPlan.value.days) {
+    for (const attr of day.attractions) {
+      const loc = attr.location;
+      if (loc && loc.longitude && loc.latitude) {
+        return { center: [loc.longitude, loc.latitude], found: true };
+      }
+    }
+    const hotelLoc = day.hotel?.location;
+    if (hotelLoc && hotelLoc.longitude && hotelLoc.latitude) {
+      return { center: [hotelLoc.longitude, hotelLoc.latitude], found: true };
+    }
+  }
+  return { center: DEFAULT_CENTER, found: false };
 };
 
 // 添加景点标记
@@ -1403,6 +1458,18 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
 /* 天气信息卡片 */
 .weather-section {
   margin-top: 20px;
+}
+
+/* 天气数据说明提示 */
+.weather-tip {
+  margin-bottom: 16px;
+}
+
+/* 降级数据警告横幅 */
+.fallback-alert {
+  max-width: 1400px;
+  margin: 0 auto 20px;
+  border-radius: 8px;
 }
 
 .day-header {

@@ -151,6 +151,9 @@ class TripPlan(BaseModel):
     weather_info: List[WeatherInfo] = Field(default=[], description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
+    # 降级标记: LLM 生成失败走兜底计划时置 True, 前端据此提示用户数据非 LLM 生成
+    is_fallback: bool = Field(default=False, description="是否为降级兜底数据(LLM未参与生成)")
+    fallback_reason: str = Field(default="", description="降级原因说明")
 
 
 class TripPlanResponse(BaseModel):

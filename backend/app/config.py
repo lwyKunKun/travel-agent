@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     )
     llm_temperature: float = 0.7
     llm_timeout: int = 60
+    # 思考模式开关: qwen3.x 系列默认开启深度思考(reasoning), 生成多天行程大JSON
+    # 时思考链会消耗大量时间(实测280秒仍超时); 关闭后延迟从分钟级降到秒级,
+    # 行程生成场景不需要思考链。可通过 .env 的 LLM_ENABLE_THINKING=true 重新开启
+    llm_enable_thinking: bool = False
 
     # RAG 嵌入模型配置 (千问 text-embedding-v4, 阿里云百炼 DashScope)
     # 未配置时 RAG 功能自动降级禁用, 不影响旅行规划主流程

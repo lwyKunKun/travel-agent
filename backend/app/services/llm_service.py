@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 _llm_instance = None
 
 # LLM调用失败自动重试次数 (网络抖动/限流时自动重试)
-_LLM_MAX_RETRIES = 2
+# 注意: 每次尝试最长耗时 LLM_TIMEOUT 秒, 重试次数过多会导致最坏等待时间
+# 超过前端 axios 超时 (timeout+1次重试 ≈ 560s < 前端600s, 刚好衔接)
+_LLM_MAX_RETRIES = 1
 
 
 def get_llm() -> ChatOpenAI:
@@ -37,6 +39,9 @@ def get_llm() -> ChatOpenAI:
             temperature=settings.llm_temperature,
             timeout=settings.llm_timeout,
             max_retries=_LLM_MAX_RETRIES,  # 网络抖动/限流时自动重试
+            # 透传给 OpenAI 兼容端点的额外参数: 控制 qwen3.x 思考模式
+            # (思考链会让多天行程生成耗时数分钟甚至超时, 默认关闭)
+            extra_body={"enable_thinking": settings.llm_enable_thinking},
         )
 
         logger.info(

@@ -336,7 +336,12 @@ const handleSubmit = async () => {
       sessionStorage.setItem('tripPlan', JSON.stringify(response.data))
       sessionStorage.removeItem('tripPlanId')
 
-      message.success('旅行计划生成成功!')
+      // 降级模式(LLM失败兜底)时用警告提示, 不再伪装成正常成功(旧版bug: 用户无从察觉)
+      if (response.data.is_fallback) {
+        message.warning(response.message || '旅行计划已生成(降级模式: LLM失败, 使用高德真实数据兜底)', 6)
+      } else {
+        message.success('旅行计划生成成功!')
+      }
 
       // 短暂延迟后跳转
       setTimeout(() => {

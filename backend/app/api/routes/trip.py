@@ -60,7 +60,12 @@ def plan_trip(request: TripRequest, db: Session = Depends(get_db)):
 
     return TripPlanResponse(
         success=True,
-        message="旅行计划生成成功",
+        # 降级模式明确告知调用方, 不再把兜底数据伪装成正常的LLM生成结果(旧版bug)
+        message=(
+            "旅行计划生成成功(降级模式: LLM生成失败, 已用高德真实POI数据兜底)"
+            if trip_plan.is_fallback
+            else "旅行计划生成成功"
+        ),
         data=trip_plan,
     )
 
