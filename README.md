@@ -23,7 +23,7 @@
 
 ![行程结果页 - 每日行程与地图](docs/screenshots/result.png)
 
-![行程结果页 - 行程详情](docs/screenshots/result1.png)
+![行程结果页 - 行程详情](docs/screenshots/result1.png) ![行程结果页 - 行程详情](docs/screenshots/result2.png)
 
 ![历史记录页 - 历史行程管理](docs/screenshots/history.png)
 
