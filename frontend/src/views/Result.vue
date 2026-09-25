@@ -396,7 +396,9 @@
           class="weather-section"
           :bordered="false"
         >
-          <a-empty description="行程日期超出天气预报范围（高德提供今日起 4 天、Open-Meteo 提供今日起 16 天），出行前请自行查询目的地天气" />
+          <a-empty
+            description="行程日期超出天气预报范围（高德提供今日起 4 天、Open-Meteo 提供今日起 16 天），出行前请自行查询目的地天气"
+          />
         </a-card>
       </div>
     </div>
@@ -611,10 +613,10 @@ const loadAttractionPhotos = async () => {
 
 // 信息来源标签颜色: 高德=蓝(真实POI), 知识库=绿(有人工整理详情), AI推荐=橙(需核实)
 const sourceTagColor = (src: string): string => {
-  if (src.includes('高德')) return 'blue'
-  if (src.includes('知识库')) return 'green'
-  return 'orange'
-}
+  if (src.includes("高德")) return "blue";
+  if (src.includes("知识库")) return "green";
+  return "orange";
+};
 
 // 获取景点图片
 const getAttractionImage = (name: string, index: number): string => {
@@ -1206,6 +1208,8 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
   padding: 0 6px;
   margin-inline-end: 0;
   font-weight: normal;
+  color: rgba(0, 0, 0, 0.88);
+  font-weight: 700;
 }
 
 .attraction-image {
@@ -1579,10 +1583,6 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
 :deep(.ant-card-head-title) {
   color: white !important;
   font-size: 18px;
-}
-
-:deep(.ant-card-head-title span) {
-  color: white !important;
 }
 
 /* Collapse样式 */
