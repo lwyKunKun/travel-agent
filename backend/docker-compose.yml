@@ -3,9 +3,10 @@
 services:
   backend:
     build: .
-    container_name: trip-planner-backend
+    container_name: trip-planner-web
     ports:
-      - "8000:8000"
+      # 只绑回环地址, 公网不可达, 由 nginx (web.lwylangchain.cn) 反代对外
+      - "127.0.0.1:8002:8000"
     # 从 .env 注入 API 密钥 (高德/LLM/千问嵌入)
     env_file:
       - .env
