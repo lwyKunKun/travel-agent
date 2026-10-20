@@ -683,6 +683,68 @@ const prepareExportImages = async (container: HTMLElement) => {
   );
 };
 
+// 合成地图快照: AMap 2.0 把底图瓦片/矢量路线/标注分散在多个叠加 canvas,
+// 且默认 AMap.Marker 渲染为 DOM 图钉不在任何 canvas 里;
+// 只截第一个 canvas 会拿到空白/残缺图, 这里按 DOM 顺序把所有 canvas
+// 合成到离屏画布, 再把 DOM 图钉画成编号圆点。返回 dataURL, 失败抛异常。
+const captureMapSnapshot = (mapContainer: HTMLElement): string => {
+  const rect = mapContainer.getBoundingClientRect();
+  const scale = 2; // 2倍清晰度, 导出图放大后不糊
+  const out = document.createElement("canvas");
+  out.width = Math.round(rect.width * scale);
+  out.height = Math.round(rect.height * scale);
+  const ctx = out.getContext("2d");
+  if (!ctx || rect.width === 0 || rect.height === 0) {
+    throw new Error("地图容器无有效尺寸");
+  }
+  ctx.scale(scale, scale);
+
+  // 1. 按 DOM 顺序合成所有 canvas 图层
+  let drawn = 0;
+  const canvases = Array.from(mapContainer.querySelectorAll("canvas"));
+  for (const c of canvases) {
+    try {
+      const cRect = c.getBoundingClientRect();
+      ctx.drawImage(
+        c,
+        cRect.left - rect.left,
+        cRect.top - rect.top,
+        cRect.width,
+        cRect.height
+      );
+      drawn++;
+    } catch (err) {
+      // 单个图层被跨域污染时跳过, 不拖垮整体快照
+      console.warn("地图图层绘制跳过(可能被跨域污染):", err);
+    }
+  }
+  if (drawn === 0) throw new Error("地图无可绘制图层");
+
+  // 2. DOM 图钉标记 → 编号圆点 (以图钉尖端为锚点)
+  const markers = Array.from(
+    mapContainer.querySelectorAll<HTMLElement>(".amap-marker")
+  );
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  markers.forEach((marker, index) => {
+    const mRect = marker.getBoundingClientRect();
+    const x = mRect.left - rect.left + mRect.width / 2;
+    const y = mRect.bottom - rect.top - 4;
+    ctx.beginPath();
+    ctx.arc(x, y - 12, 11, 0, Math.PI * 2);
+    ctx.fillStyle = "#6366f1";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText(String(index + 1), x, y - 12);
+  });
+
+  return out.toDataURL("image/png");
+};
+
 // 导出为图片
 const exportAsImage = async () => {
   try {
@@ -702,17 +764,14 @@ const exportAsImage = async () => {
     // 复制所有内容
     exportContainer.innerHTML = element.innerHTML;
 
-    // 处理地图截图 (WebGL canvas 需 preserveDrawingBuffer 才能 toDataURL,
+    // 处理地图截图 (WebGL 需 preserveDrawingBuffer; AMap 2.0 多 canvas 需逐层合成,
     // 失败时用占位提示替代, 不中断导出)
     const mapContainer = document.getElementById("amap-container");
     if (mapContainer && map) {
       const exportMapContainer = exportContainer.querySelector("#amap-container");
       if (exportMapContainer) {
         try {
-          const mapCanvas = mapContainer.querySelector("canvas");
-          const mapSnapshot = mapCanvas
-            ? mapCanvas.toDataURL("image/png")
-            : "";
+          const mapSnapshot = captureMapSnapshot(mapContainer);
           exportMapContainer.innerHTML = mapSnapshot
             ? `<img src="${mapSnapshot}" style="width:100%;height:100%;object-fit:cover;" />`
             : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8eaef;color:#888;">地图截图不可用</div>`;
@@ -850,17 +909,14 @@ const exportAsPDF = async () => {
     // 复制所有内容
     exportContainer.innerHTML = element.innerHTML;
 
-    // 处理地图截图 (WebGL canvas 需 preserveDrawingBuffer 才能 toDataURL,
+    // 处理地图截图 (WebGL 需 preserveDrawingBuffer; AMap 2.0 多 canvas 需逐层合成,
     // 失败时用占位提示替代, 不中断导出)
     const mapContainer = document.getElementById("amap-container");
     if (mapContainer && map) {
       const exportMapContainer = exportContainer.querySelector("#amap-container");
       if (exportMapContainer) {
         try {
-          const mapCanvas = mapContainer.querySelector("canvas");
-          const mapSnapshot = mapCanvas
-            ? mapCanvas.toDataURL("image/png")
-            : "";
+          const mapSnapshot = captureMapSnapshot(mapContainer);
           exportMapContainer.innerHTML = mapSnapshot
             ? `<img src="${mapSnapshot}" style="width:100%;height:100%;object-fit:cover;" />`
             : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8eaef;color:#888;">地图截图不可用</div>`;
