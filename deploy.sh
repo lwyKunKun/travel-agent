@@ -32,7 +32,7 @@ if git diff --cached --quiet; then
 else
     git commit -m "部署: ${TIMESTAMP}"
 fi
-git push origin main
+git push origin master
 echo -e "${GREEN}  GitHub 推送完成${NC}"
 echo ""
 
@@ -62,7 +62,7 @@ ssh "${SERVER}" "
     if [ ! -d ~/travel-agent-web ]; then
         git clone git@github.com:lwyKunKun/travel-agent.git ~/travel-agent-web
     else
-        cd ~/travel-agent-web && git fetch origin && git reset --hard origin/main
+        cd ~/travel-agent-web && git fetch origin && git reset --hard origin/master
     fi
 "
 echo -e "${GREEN}  代码同步完成${NC}"
