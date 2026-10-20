@@ -2,6 +2,8 @@
 
 基于 **LangChain + LangGraph + FastAPI** 构建的智能旅行规划助手，直调高德地图 Web 服务 API，提供个性化的多日旅行计划生成，并内置 **RAG 知识库检索**与**行程历史记录持久化**。
 
+**在线体验**：https://web.lwylangchain.cn
+
 ## ✨ 功能特点
 
 - 🤖 **LangGraph 工作流编排**: 用 StateGraph 构建多节点旅行规划流水线（搜景点 → 查天气 → 搜酒店 → 生成行程 → 兜底），支持条件路由
@@ -11,10 +13,10 @@
 - 🌤️ **双源天气合并**: 高德提供今起 4 天官方预报，超出部分用 Open-Meteo（免费，16 天窗口）自动补齐，并按行程日期范围过滤防止日期错位
 - 📜 **行程历史记录**: SQLite 持久化每次生成的行程，支持分页查询、按城市筛选、查看、编辑、删除；编辑修改可写回数据库
 - 🗺️ **高德地图直调**: httpx 直接调用高德 Web 服务 REST API，无外部 MCP 进程依赖
-- 📸 **国内图源**: 景点图片优先取高德 POI 实景图（国内 CDN，快且稳），带 QPS 节流与熔断保护
+- 📸 **国内图源与可靠导出**: 景点图片优先取高德 POI 实景图（国内 CDN，快且稳），支持导出 PNG/PDF；导出时合成高德地图全部 Canvas 图层与 DOM 景点标记，避免地图空白
 - 🛡️ **优雅降级**: 数据节点失败返回空列表、LLM 失败走备用计划、RAG 未配置 Key 自动禁用，保证接口始终可用
 - 🧱 **企业级工程化**: 日志落盘与轮转、全局异常处理、Prometheus 监控、Docker 一键部署、pytest 自动化测试
-- 🔌 **兼容任意模型**: 换 LLM 只需改 `.env` 三个参数（Key / Base URL / Model），无需改代码
+- 🔌 **兼容 OpenAI 协议模型**: 换 LLM 只需调整 `.env` 中的 Key、Base URL、Model 与模型参数，无需改业务代码
 - 🎨 **现代化前端**: Vue3 + TypeScript + Vite + Ant Design Vue，深空霓虹渐变主题 + 玻璃拟态卡片
 
 ## 📸 界面预览
@@ -170,17 +172,17 @@ pip install -r requirements.txt
 # 高德地图
 AMAP_API_KEY=你的高德Web服务Key
 
-# LLM (以DeepSeek为例; 换其他模型只需改这三项)
-LLM_API_KEY=你的LLM Key
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL_ID=deepseek-chat
+# LLM（Kimi For Coding；temperature 必须为 1）
+LLM_API_KEY=你的Kimi密钥
+LLM_BASE_URL=https://api.kimi.com/coding/v1
+LLM_MODEL_ID=k3
+LLM_TEMPERATURE=1
 
 # RAG 知识库 (可选, 留空则 RAG 自动禁用, 不影响主流程)
 DASHSCOPE_API_KEY=你的阿里云百炼Key   # 控制台: bailian.console.aliyun.com
 EMBEDDING_MODEL=text-embedding-v4     # 嵌入模型名(默认即可)
 
-# 可选: 模型参数与日志级别
-LLM_TEMPERATURE=0.7
+# 可选: 超时与日志级别
 LLM_TIMEOUT=60
 LOG_LEVEL=INFO
 ```
@@ -229,6 +231,50 @@ docker compose down            # 停止并移除容器
 - `./data` 目录已挂载为数据卷，SQLite 数据库与 Chroma 向量库**重启容器不丢失**
 - 验证: `http://localhost:8000/health`（服务状态）、`http://localhost:8000/metrics`（Prometheus 指标）
 - **注意**: 容器占用 8000 端口。若之后想用本地 `python run.py` 调试，先 `docker compose down`，否则浏览器访问 `localhost` 会被容器接管、本地后端收不到请求
+
+### 生产环境部署
+
+当前生产地址为 **https://web.lwylangchain.cn**，架构如下：
+
+- Nginx 托管 `frontend/dist`，并将 `/api/` 反向代理到 Docker 后端
+- 后端仅监听宿主机回环地址 `127.0.0.1:8002`，不直接暴露公网端口
+- Let's Encrypt 提供 HTTPS 证书，Certbot 定时任务自动续期
+- `/docs`、`/redoc`、`/openapi.json`、`/metrics`、`/api/rag/rebuild` 在公网入口返回 404
+- ICP 备案号：蜀ICP备2026061913号-1
+
+仓库根目录的 `deploy.sh` 完成完整发布流程：
+
+```bash
+# 前端生产构建（API 地址写入构建产物）
+cd frontend
+VITE_API_BASE_URL=https://web.lwylangchain.cn npm run build
+cd ..
+
+# 推送代码 → 备份服务器 .env/data → 同步 dist/.env → 重建容器 → 健康检查
+bash deploy.sh
+```
+
+部署脚本默认使用 SSH 别名 `aliyun-stock`，也可以传入其他服务器别名：
+
+```bash
+bash deploy.sh your-server-alias
+```
+
+生产部署注意事项：
+
+1. 每个 Docker Compose 项目必须配置唯一的顶层 `name:`，防止同机多个 `backend/` 目录使用默认项目名时误删或重建其他项目容器。
+2. `backend/.env` 不提交 Git；部署脚本会先备份服务器旧配置和数据，再同步本地配置。
+3. 前端静态文件必须放在 Nginx 可读取的目录（当前为 `/var/www/travel-web/dist`），不能直接把 Nginx `root` 指向 `/root` 下的仓库目录。
+4. Kimi For Coding 使用 `k3` 模型时，`LLM_TEMPERATURE` 必须设置为 `1`。
+
+### 导出地图实现说明
+
+高德地图 JS API 2.0 会把底图、矢量路线和覆盖物分散到 Canvas 与 DOM 图层。导出时不能只读取第一个 Canvas，否则图片或 PDF 中可能出现空白地图。当前实现会：
+
+1. 开启 `WebGLParams.preserveDrawingBuffer`，保留 WebGL 绘图缓冲区；
+2. 按地图容器坐标合成全部 Canvas 图层，并以 2 倍分辨率输出；
+3. 把 `.amap-marker` DOM 标记转换为编号圆点绘制到快照；
+4. 再将地图快照交给 `html2canvas`，供 PNG 与 PDF 两条导出路径共用。
 
 ### 运行自动化测试
 
