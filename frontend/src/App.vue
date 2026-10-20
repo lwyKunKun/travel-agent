@@ -5,6 +5,9 @@
         <component :is="Component" />
       </transition>
     </router-view>
+    <footer class="icp-footer">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">蜀ICP备2026061913号-1</a>
+    </footer>
   </div>
 </template>
 
@@ -20,6 +23,26 @@
   position: relative;
   z-index: 1;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ICP 备案页脚: 贴底、低调不抢眼, 短页面沉底、长页面随内容排在末尾 */
+.icp-footer {
+  margin-top: auto;
+  padding: 12px 0 16px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.icp-footer a {
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+}
+
+.icp-footer a:hover {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 body {
