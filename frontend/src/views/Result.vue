@@ -421,7 +421,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from "vue";
 import { useRouter } from "vue-router";
 import { message } from "ant-design-vue";
 import { DownOutlined } from "@ant-design/icons-vue";
@@ -440,6 +440,7 @@ const activeSection = ref("overview");
 const activeDays = ref<number[]>([0]); // 默认展开第一天
 const historyRecordId = ref<number>(0); // 从历史打开时的记录 id (0=新规划)
 let map: any = null;
+let isUnmounted = false;
 
 // 统计所有景点数量
 const totalAttractions = computed(() => {
@@ -453,6 +454,7 @@ const formatMoney = (value: number): string => {
 };
 
 onMounted(async () => {
+  isUnmounted = false;
   const data = sessionStorage.getItem("tripPlan");
   if (data) {
     tripPlan.value = JSON.parse(data);
@@ -462,7 +464,17 @@ onMounted(async () => {
     await loadAttractionPhotos();
     // 等待DOM渲染完成后初始化地图
     await nextTick();
-    initMap();
+    if (!isUnmounted) {
+      void initMap();
+    }
+  }
+});
+
+onBeforeUnmount(() => {
+  isUnmounted = true;
+  if (map) {
+    map.destroy();
+    map = null;
   }
 });
 
@@ -1064,6 +1076,8 @@ const initMap = async () => {
       plugins: ["AMap.Marker", "AMap.Polyline", "AMap.InfoWindow"],
     });
 
+    if (isUnmounted || !document.getElementById("amap-container")) return;
+
     // 创建地图实例
     // 中心点: 取行程中第一个有效景点坐标(修复旧版bug: 硬编码北京中心,
     // 导致成都等无坐标行程的地图显示北京); 无任何有效坐标时才回退北京并提示
@@ -1090,6 +1104,23 @@ const initMap = async () => {
   }
 };
 
+// 只把有限且位于合法经纬度范围内的坐标交给高德地图
+const getValidLocation = (location: any): [number, number] | null => {
+  const longitude = Number(location?.longitude);
+  const latitude = Number(location?.latitude);
+  if (
+    !Number.isFinite(longitude) ||
+    !Number.isFinite(latitude) ||
+    longitude < -180 ||
+    longitude > 180 ||
+    latitude < -90 ||
+    latitude > 90
+  ) {
+    return null;
+  }
+  return [longitude, latitude];
+};
+
 // 计算地图初始中心: 第一个有效景点坐标 > 酒店坐标 > 默认北京(仅兜底)
 const getMapCenter = (): { center: [number, number]; found: boolean } => {
   const DEFAULT_CENTER: [number, number] = [116.397128, 39.916527];
@@ -1097,14 +1128,14 @@ const getMapCenter = (): { center: [number, number]; found: boolean } => {
 
   for (const day of tripPlan.value.days) {
     for (const attr of day.attractions) {
-      const loc = attr.location;
-      if (loc && loc.longitude && loc.latitude) {
-        return { center: [loc.longitude, loc.latitude], found: true };
+      const location = getValidLocation(attr.location);
+      if (location) {
+        return { center: location, found: true };
       }
     }
-    const hotelLoc = day.hotel?.location;
-    if (hotelLoc && hotelLoc.longitude && hotelLoc.latitude) {
-      return { center: [hotelLoc.longitude, hotelLoc.latitude], found: true };
+    const hotelLocation = getValidLocation(day.hotel?.location);
+    if (hotelLocation) {
+      return { center: hotelLocation, found: true };
     }
   }
   return { center: DEFAULT_CENTER, found: false };
@@ -1120,13 +1151,15 @@ const addAttractionMarkers = (AMap: any) => {
   // 收集所有景点
   tripPlan.value.days.forEach((day, dayIndex) => {
     day.attractions.forEach((attraction, attrIndex) => {
-      if (
-        attraction.location &&
-        attraction.location.longitude &&
-        attraction.location.latitude
-      ) {
+      const location = getValidLocation(attraction.location);
+      if (location) {
         allAttractions.push({
           ...attraction,
+          location: {
+            ...attraction.location,
+            longitude: location[0],
+            latitude: location[1],
+          },
           dayIndex,
           attrIndex,
         });
