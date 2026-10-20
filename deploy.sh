@@ -69,9 +69,11 @@ echo -e "${GREEN}  代码同步完成${NC}"
 echo ""
 
 # ---- 4. 同步前端 dist 与 .env (均不在 git 内) ----
-# dist 由本地 npm run build 产出; .env 含密钥不入库, 仅当服务器缺失时首次上传
+# dist 由本地 npm run build 产出, nginx 直接从 /var/www/travel-web/dist 托管
+# (.DS_Store 等无关文件不同步); .env 含密钥不入库, 仅当服务器缺失时首次上传
 echo -e "${YELLOW}[4/5] 同步前端 dist 与 .env...${NC}"
-rsync -az --delete frontend/dist/ "${SERVER}:~/travel-agent-web/frontend/dist/"
+rsync -az --delete --exclude=.DS_Store frontend/dist/ "${SERVER}:/var/www/travel-web/dist/"
+ssh "${SERVER}" 'chown -R www-data:www-data /var/www/travel-web'
 ssh "${SERVER}" "
     if [ ! -f ~/travel-agent-web/backend/.env ]; then
         echo '  服务器无 .env, 等待本地上传...'
