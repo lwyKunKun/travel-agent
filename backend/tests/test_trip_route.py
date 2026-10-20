@@ -1,10 +1,13 @@
 """旅行规划路由测试: mock Agent, 不调用真实 LLM/高德"""
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.main import app
+from app.db.database import get_db
 from app.models.schemas import (
     TripPlan,
     DayPlan,
@@ -68,6 +71,24 @@ VALID_REQUEST = {
 }
 
 
+@pytest.fixture(autouse=True)
+def isolate_trip_dependencies(monkeypatch):
+    def override_db():
+        yield Mock()
+
+    app.dependency_overrides[get_db] = override_db
+    monkeypatch.setattr(
+        "app.api.routes.trip.history_service.create_trip_record",
+        lambda *args, **kwargs: SimpleNamespace(id=1),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.trip.get_rag_service",
+        lambda: SimpleNamespace(add_history_plan=lambda *args, **kwargs: None),
+    )
+    yield
+    app.dependency_overrides.pop(get_db, None)
+
+
 def test_plan_trip_success(client, monkeypatch):
     """正常生成旅行计划"""
     fake_agent = Mock()
@@ -91,6 +112,46 @@ def test_plan_trip_invalid_days(client):
     bad_request = {**VALID_REQUEST, "travel_days": 999}
     resp = client.post("/api/trip/plan", json=bad_request)
     assert resp.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"start_date": "2026/08/01"},
+        {"start_date": "2026-08-03", "end_date": "2026-08-02"},
+        {"travel_days": 1},
+    ],
+)
+def test_plan_trip_rejects_invalid_date_range_before_agent(client, monkeypatch, updates):
+    fake_agent = Mock()
+    monkeypatch.setattr(
+        "app.api.routes.trip.get_trip_planner_agent", lambda: fake_agent
+    )
+
+    resp = client.post("/api/trip/plan", json={**VALID_REQUEST, **updates})
+
+    assert resp.status_code == 422
+    fake_agent.plan_trip.assert_not_called()
+
+
+def test_plan_trip_reports_partial_fallback(client, monkeypatch):
+    fake_agent = Mock()
+    fallback_plan = make_fake_trip_plan().model_copy(update={
+        "is_fallback": True,
+        "fallback_reason": "第2/2块生成失败，已局部兜底",
+    })
+    fake_agent.plan_trip.return_value = fallback_plan
+    monkeypatch.setattr(
+        "app.api.routes.trip.get_trip_planner_agent", lambda: fake_agent
+    )
+
+    resp = client.post("/api/trip/plan", json=VALID_REQUEST)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["data"]["is_fallback"] is True
+    assert "部分或全部日期" in data["message"]
+    assert "第2/2块" in data["data"]["fallback_reason"]
 
 
 def test_plan_trip_missing_field(client):

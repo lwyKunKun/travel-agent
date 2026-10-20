@@ -27,17 +27,17 @@
       </a-space>
     </div>
 
-    <!-- 降级数据警告横幅: LLM生成失败时后端会打上 is_fallback 标记 -->
+    <!-- 降级数据警告横幅: 部分或全部分块失败时后端会打上 is_fallback 标记 -->
     <a-alert
       v-if="tripPlan && tripPlan.is_fallback"
       class="fallback-alert"
       type="warning"
       show-icon
       banner
-      message="⚠️ 当前行程为降级兜底数据（LLM 未参与生成）"
+      message="⚠️ 部分或全部日期已使用降级兜底数据"
       :description="
         tripPlan.fallback_reason ||
-        '行程由高德真实POI数据自动编排，缺少AI个性化建议。请检查后端 LLM_API_KEY 配置后重新生成。'
+        '对应日期由高德真实POI数据自动编排，个性化程度可能较低。请稍后重新生成。'
       "
     />
 
