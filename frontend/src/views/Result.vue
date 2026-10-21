@@ -592,8 +592,8 @@ const getMealLabel = (type: string): string => {
   return labels[type] || type;
 };
 
-// 后端API地址 (与 services/api.ts 保持一致, 修复旧版硬编码 localhost:8000 导致部署环境拉不到图片)
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// 后端API地址 (与 services/api.ts 保持一致): 生产构建为空串走同源反代
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 // 加载所有景点图片
 const loadAttractionPhotos = async () => {
@@ -672,7 +672,7 @@ const handleImageError = (event: Event) => {
 };
 
 // 后端 API 基地址 (与 services/api.ts 保持一致), 导出图片代理用
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 // 把导出容器里的高德 CDN 图片替换为后端代理源, 并等待加载完成。
 // 修复导出图片/PDF 照片空白: 高德 CDN 不返回 CORS 头, html2canvas 以
